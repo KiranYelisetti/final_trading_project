@@ -89,6 +89,10 @@ def run_daily_cycle():
         
         # Analyze
         df['date'] = pd.to_datetime(df['date'])
+        
+        # Remove duplicates if any (keep last)
+        df = df.drop_duplicates(subset=['date'], keep='last')
+        
         df.set_index('date', inplace=True)
         df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume', 'ema_200': 'EMA_200'})
         

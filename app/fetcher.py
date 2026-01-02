@@ -56,6 +56,19 @@ def get_tickers():
         print(f"Error fetching Nifty 50 list: {e}")
         return []
 
+def get_fno_tickers():
+    """Fetch list of F&O stocks (approx 200 liquid stocks)."""
+    try:
+        print("Fetching F&O Equity list from NSE...")
+        # Clean column names as nselib sometimes has whitespace
+        df = capital_market.fno_equity_list()
+        # The column is usually 'symbol' or 'Symbol'
+        col = 'symbol' if 'symbol' in df.columns else 'Symbol'
+        return df[col].tolist()
+    except Exception as e:
+        print(f"Error fetching F&O list: {e}")
+        return []
+
 def process_stock_data(ticker, df):
     """Calculate indicators."""
     if df.empty:
@@ -115,10 +128,16 @@ def update_market_data(db: Session, tickers: list):
             # Calculate Indicators
             data = process_stock_data(ticker, data)
             
+            # Find existing dates to avoid duplicates
+            existing_dates = {row[0] for row in db.query(DailyPrice.date).filter(DailyPrice.ticker == ticker).all()}
+            
             # Prepare objects
             new_records = []
             for date, row in data.iterrows():
-                # Skip if already exists (double check, though start_date should handle it)
+                # Skip if already exists
+                if date.date() in existing_dates:
+                    continue
+                
                 # Also skip if essential data is missing
                 if pd.isna(row['Close']):
                     continue
