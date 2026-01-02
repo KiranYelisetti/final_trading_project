@@ -6,6 +6,9 @@ on:
     - cron: '15 4 * * 1-5'
   workflow_dispatch: # Allow manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   daily-scan:
     runs-on: ubuntu-latest
@@ -27,14 +30,18 @@ jobs:
       run: |
         # Ensure data dir exists
         mkdir -p data
-        # Note: In a real cloud setup, you need to persist the DB (e.g., using S3 or a managed DB).
-        # For GitHub Actions (Ephemeral), this will start fresh each time unless we use artifacts/cache.
-        # But for "Alert Scanning", a fresh DB + Fetching is fine (it fetches history).
-        # We lose "Active Trades" tracking in ephemeral runs. 
-        # Recommendation: Use Streamlit Cloud for persistence or a proper DB.
         
     - name: Run Daily Scanner
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: python daily_run.py
+      
+    - name: Cloud Sync (Commit Changes)
+      run: |
+        git config --global user.name 'GitHub Action'
+        git config --global user.email 'action@github.com'
+        # Add the database (force if ignored)
+        git add -f data/market_data.db
+        # Only commit if there are changes
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto: Update Market Data & Trades" && git push)
