@@ -39,6 +39,8 @@ def load_price_data(ticker):
     db.close()
     if not df.empty:
         df['date'] = pd.to_datetime(df['date'])
+        # Handle duplicates to prevent reindexing errors
+        df = df.drop_duplicates(subset=['date'], keep='last')
         df.set_index('date', inplace=True)
         # Rename for consistency
         df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume', 'ema_200': 'EMA_200'})
