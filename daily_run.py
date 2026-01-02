@@ -99,9 +99,20 @@ def run_daily_cycle():
         _, s_df = analyze_ticker(ticker, df)
         
         # Logic: Trend + OB
+        # Logic: Trend + OB
         latest = s_df.iloc[-1]
-        ema = latest['EMA_200'] if 'EMA_200' in latest else s_df['Close'].ewm(span=200).mean().iloc[-1]
         
+        # Calculate EMA if missing (simple fallback)
+        ema = latest.get('EMA_200')
+        if pd.isna(ema) or ema is None:
+             # Try calculating on the fly if enough data
+             if len(df) > 200:
+                 ema = df['Close'].ewm(span=200).mean().iloc[-1]
+             else:
+                 # Not enough data for trend filter, skip
+                 print(f"Skipping {ticker}: Not enough data for EMA_200 (len={len(df)})")
+                 continue
+
         if latest['Close'] > ema:
             # Check last 3 days for OB
             recent = s_df.tail(3)
