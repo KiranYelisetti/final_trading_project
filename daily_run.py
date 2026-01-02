@@ -141,7 +141,7 @@ def run_daily_cycle():
                         status="PENDING"
                     )
                     db.add(new_trade)
-                    alert = f"🚀 NEW SIGNAL: {ticker} | Buy Limit: {entry} | SL: {sl} | TP: {tp}"
+                    alert = f"🚀 NEW SIGNAL: {ticker} | Buy Limit: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f}"
                     send_alert(alert)
     
     db.commit()
