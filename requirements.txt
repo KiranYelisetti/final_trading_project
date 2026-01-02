@@ -12,3 +12,4 @@ backtesting
 streamlit
 plotly
 pandas_ta
+pandas_market_calendars
