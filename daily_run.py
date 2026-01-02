@@ -9,8 +9,8 @@ import requests
 
 # Telegram Settings
 # User provided Token. Chat ID must be set in Environment or Config.
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8481699762:AAE_eoIKngb4vRCB9vlUXfi2n0CAKTIhyf8")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-5186249225")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_alert(message):
     print(f"ALERT: {message}")
