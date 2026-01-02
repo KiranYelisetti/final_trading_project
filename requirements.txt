@@ -11,3 +11,4 @@ mplfinance
 backtesting
 streamlit
 plotly
+pandas_ta
