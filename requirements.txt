@@ -1,0 +1,14 @@
+yfinance
+pandas
+pandas_ta
+requests
+beautifulsoup4
+openpyxl
+nselib
+sqlalchemy
+smartmoneyconcepts
+mplfinance
+backtesting
+streamlit
+plotly
+requests
