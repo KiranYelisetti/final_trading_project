@@ -19,8 +19,9 @@ def main():
     db_gen = get_db()
     db = next(db_gen)
     try:
+        print("Calling update_market_data...")
         # Market Data
-        # update_market_data(db, tickers) # optimizing time for this run
+        update_market_data(db, tickers)
         
         # Fundamentals
         update_fundamentals(db, tickers)

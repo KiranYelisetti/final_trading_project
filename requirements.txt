@@ -1,15 +1,15 @@
-yfinance
+# yfinance
 pandas
 pandas_ta
 requests
 beautifulsoup4
 openpyxl
 nselib
+nsepython
 sqlalchemy
 # smartmoneyconcepts Removed (Manual Implementation used)
 mplfinance
 backtesting
 streamlit
 plotly
-pandas_ta
 pandas_market_calendars
