@@ -67,7 +67,7 @@ def run_intraday_cycle():
             if nse_low <= trade.entry_price:
                 trade.status = "OPEN"
                 trade.entry_date = today
-                msg = f"✅ **ENTRY FILLED**: {trade.ticker}\nPrice: {trade.entry_price}"
+                msg = f"✅ **ENTRY FILLED**: {trade.ticker}\nPrice: {trade.entry_price}\nSL: {trade.sl_price}\nTP: {trade.tp_price}"
                 send_alert(msg)
                 
         elif trade.status == "OPEN":
