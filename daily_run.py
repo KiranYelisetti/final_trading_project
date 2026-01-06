@@ -198,22 +198,28 @@ def run_eod_report():
     
     if wins:
         msg += "\n🎉 **Wins Today:**\n"
-        for t in wins: msg += f"{t.ticker}: {t.pnl:.2f}\n"
+        for t in wins: 
+            pnl_pct = (t.pnl / t.entry_price) * 100
+            msg += f"{t.ticker}: {t.pnl:.2f} ({pnl_pct:.2f}%)\n"
         events = True
         
     if losses:
         msg += "\n💀 **Losses Today:**\n"
-        for t in losses: msg += f"{t.ticker}: {t.pnl:.2f}\n"
+        for t in losses: 
+            pnl_pct = (t.pnl / t.entry_price) * 100
+            msg += f"{t.ticker}: {t.pnl:.2f} ({pnl_pct:.2f}%)\n"
         events = True
         
     if fills:
         msg += "\n✅ **Entries Filled:**\n"
-        for t in fills: msg += f"{t.ticker} @ {t.entry_price}\n"
+        for t in fills: 
+            msg += f"{t.ticker} @ {t.entry_price} (SL: {t.sl_price}, TP: {t.tp_price})\n"
         events = True
         
     if signals:
         msg += "\n🎯 **New Signals:**\n"
-        for t in signals: msg += f"{t.ticker} Buy: {t.entry_price:.2f}\n"
+        for t in signals: 
+            msg += f"{t.ticker} Buy: {t.entry_price:.2f} | SL: {t.sl_price:.2f} | TP: {t.tp_price:.2f}\n"
         events = True
         
     if events:
