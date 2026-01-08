@@ -23,6 +23,12 @@ def get_live_price(ticker):
             curr = data['priceInfo']['lastPrice']
             d_high = data['priceInfo']['intraDayHighLow']['max']
             d_low = data['priceInfo']['intraDayHighLow']['min']
+            
+            # Validate Data
+            if curr <= 0 or d_high <= 0 or d_low <= 0:
+                 print(f"[{ticker}] Invalid Data Received: Price={curr}, High={d_high}, Low={d_low}")
+                 return None, None, None
+
             print(f"[{ticker}] Live NSE Data: Price={curr}, High={d_high}, Low={d_low}")
             return d_low, d_high, curr
     except Exception as e:
