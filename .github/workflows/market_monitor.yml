@@ -5,6 +5,8 @@ on:
     # Every 3 minutes from 3:45 UTC (9:15 IST) to 10:00 UTC (3:30 IST)
     - cron: '*/3 3-10 * * 1-5'
   workflow_dispatch:
+  repository_dispatch:
+    types: [market-monitor]
 
 permissions:
   contents: write
