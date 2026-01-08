@@ -56,6 +56,7 @@ class Trade(Base):
     exit_date = Column(Date, nullable=True)
     exit_price = Column(Float, nullable=True)
     pnl = Column(Float, nullable=True)
+    reason = Column(String, nullable=True) # Added for audit trail
     ema_50 = Column(Float, nullable=True)
     ema_20 = Column(Float, nullable=True)
     

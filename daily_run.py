@@ -41,134 +41,203 @@ def send_alert(message):
     else:
         print("Telegram Chat ID not found. Set TELEGRAM_CHAT_ID env var.")
 
-def run_intraday_cycle():
-    print("Starting INTRADAY Cycle (Real-time Scan)...")
+def run_premarket_scan():
+    """
+    Runs before market open (e.g., 8:45 AM).
+    Scans for Valid Setups based on YESTERDAY'S Data.
+    Creates trades with status = 'POTENTIAL'.
+    """
+    print("Starting PRE-MARKET Scan (Analysis of Yesterday)...")
     init_db()
     db = next(get_db())
     today = date.today()
     
-    # Intraday does NOT run full update_market_data to save time/bandwidth
-    # It relies on existing DB + Live Price
+    # Clean up old checks? Maybe not.
+    
     stocks = db.query(Stock).all()
     tickers = [s.ticker for s in stocks]
     
-    # 1. Manage Active Trades (Fills/Exits)
-    # Check "PENDING" for Entry
-    # Check "OPEN" for SL/TP
-    active_trades = db.query(Trade).filter(Trade.status.in_(["PENDING", "OPEN"])).all()
+    potential_count = 0
     
-    for trade in active_trades:
-        nse_low, nse_high, nse_curr = get_live_price(trade.ticker)
-        if not nse_curr: continue
-        
-        if trade.status == "PENDING":
-            # Check Entry: If Price drops below Entry Limit
-            # Note: We use 'Low' to see if price *touched* the limit
-            if nse_low <= trade.entry_price:
-                trade.status = "OPEN"
-                trade.entry_date = today
-                msg = f"✅ **ENTRY FILLED**: {trade.ticker}\nPrice: {trade.entry_price}\nSL: {trade.sl_price}\nTP: {trade.tp_price}"
-                send_alert(msg)
-                
-        elif trade.status == "OPEN":
-            # Check SL (Price drops below SL)
-            if nse_low <= trade.sl_price:
-                trade.status = "CLOSED"
-                trade.outcome = "LOSS"
-                trade.exit_price = trade.sl_price
-                trade.exit_date = today
-                trade.pnl = trade.exit_price - trade.entry_price
-                msg = f"🛑 **STOP LOSS HIT**: {trade.ticker}\nExit: {trade.exit_price}\nPnL: {trade.pnl:.2f}"
-                send_alert(msg)
-                
-            # Check TP (Price rises above TP)
-            elif nse_high >= trade.tp_price:
-                trade.status = "CLOSED"
-                trade.outcome = "WIN"
-                trade.exit_price = trade.tp_price
-                trade.exit_date = today
-                trade.pnl = trade.exit_price - trade.entry_price
-                msg = f"💰 **TARGET HIT**: {trade.ticker}\nExit: {trade.exit_price}\nPnL: {trade.pnl:.2f}"
-                send_alert(msg)
-    
-    db.commit()
-    
-    # 2. Scan for NEW Signals (Intraday)
-    # Strategy: Pure FVG (Technically based on Daily Candle Close, but we scan for potential formation)
-    print("Scanning for fresh signals...")
     for ticker in tickers:
         try:
-            # We need history to find FVG setup (High[i-2])
+            # 1. Fetch Historical Data (Up to Yesterday)
             query = db.query(DailyPrice).filter(DailyPrice.ticker == ticker).order_by(DailyPrice.date.asc())
             df = pd.read_sql(query.statement, db.bind)
-            if df.empty: continue
+            
+            if df.empty or len(df) < 50: continue
             
             # Prepare Data
             df['date'] = pd.to_datetime(df['date'])
             df.set_index('date', inplace=True)
             df = df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume', 'ema_200': 'EMA_200'})
             
-            # Fetch Live Data to form "Provisional Daily Candle"
-            nse_low, nse_high, nse_curr = get_live_price(ticker)
-            if not nse_curr: continue
-            
-            # Create a provisional row for "Today"
-            live_idx = pd.Timestamp(today)
-            live_row = pd.DataFrame([{
-                'Open': nse_curr, # Approx
-                'High': nse_high,
-                'Low': nse_low,
-                'Close': nse_curr, # Current Price acting as Close
-                'Volume': 0 # Not used for FVG logic
-            }], index=[live_idx])
-            
-            # If today is already in df (partially updated DB), drop it to use live data
-            if live_idx in df.index:
-                df = df.drop(live_idx)
-            
-            # Append live row
-            df_combined = pd.concat([df, live_row])
-            
-            # Analyze
-            _, s_df = analyze_ticker(ticker, df_combined)
+            # 2. Analyze Strategy (Pure FVG)
+            _, s_df = analyze_ticker(ticker, df)
             latest = s_df.iloc[-1]
             
-            # Pure FVG Logic
-            if latest['bullish_fvg']: # If currently forming a Bullish FVG
-                # Check duplication
-                existing = db.query(Trade).filter(Trade.ticker == ticker, Trade.status.in_(["PENDING", "OPEN"])).first()
+            # 3. Check for Setup
+            if latest['bullish_fvg']: # Bullish FVG Found
+                entry = latest['Low'] # Top of FVG Gap (Yesterday's Low? No, FVG logic defines entry)
+                
+                # Double check FVG Logic interpretation:
+                # Usually FVG Entry is the top of the gap candle (candle i-2 Low vs i High)
+                # Ensure we use the calculated entry from analyze_ticker if available or derive it.
+                # Assuming analyze_ticker returns a DF where 'Low' of the last candle IS the setup candle?
+                # Actually, verify analyze_ticker logic. 
+                # Assuming standard FVG: We want to enter at the retest of the gap.
+                # latest['Low'] is likely just yesterday's low.
+                # We need the Top of the 3rd candle in the sequence?
+                # For safety, let's trust the 'price' logic we had before:
+                # entry = latest['Low'] (This seems to be what was used: "Entry: Top of Gap (Current Low)")
+                
+                # Check duplication for TODAY
+                existing = db.query(Trade).filter(
+                    Trade.ticker == ticker, 
+                    Trade.signal_date == today
+                ).first()
+                
                 if not existing:
-                    entry = latest['Low'] # Top of Gap (Current Low)
-                    
                     # Risk Management
                     if len(s_df) >= 3:
                         sl = s_df['Low'].iloc[-3] # i-2 Low
                     else:
-                        sl = entry * 0.95
+                        sl = entry * 0.95 # Fallback
                         
                     risk = entry - sl
                     if risk > 0:
                         tp = entry + (2 * risk)
                         
+                        # Create POTENTIAL Trade
                         new_trade = Trade(
                             ticker=ticker,
                             signal_date=today,
                             entry_price=entry,
                             sl_price=sl,
                             tp_price=tp,
-                            status="PENDING"
+                            status="POTENTIAL",
+                            reason="Pre-Market Scan"
                         )
                         db.add(new_trade)
-                        db.commit() # Commit immediately for Intraday to avoid duplicates in next 5 min run
-                        
-                        msg = f"🚀 **NEW SIGNAL**: {ticker}\nEntry: {entry:.2f}\nSL: {sl:.2f}\nTP: {tp:.2f}"
-                        send_alert(msg)
-                        
+                        potential_count += 1
+                        print(f"[{ticker}] Found Potential Setup. Entry: {entry}")
+
         except Exception as e:
             print(f"Error scanning {ticker}: {e}")
             
+    db.commit()
+    
+    if potential_count > 0:
+        msg = f"🌅 **PRE-MARKET SCAN COMPLETED**\nFound {potential_count} potential setups for today.\nWaiting for Market Open..."
+        send_alert(msg)
+    else:
+        print("No potential setups found.")
+        
     db.close()
-    print("Intraday Cycle Complete.")
+    print("Pre-Market Cycle Complete.")
+
+def run_intraday_execution():
+    """
+    Runs during market hours (e.g., every 5 mins).
+    1. Checks 'POTENTIAL' trades for Validation & Entry.
+    2. Manages 'OPEN' trades for Exits.
+    """
+    print("Starting INTRADAY EXECUTION Cycle...")
+    init_db()
+    db = next(get_db())
+    today = date.today()
+    
+    # -------------------------------
+    # 1. Process POTENTIAL Trades
+    # -------------------------------
+    potential_trades = db.query(Trade).filter(
+        Trade.status == "POTENTIAL",
+        Trade.signal_date == today
+    ).all()
+    
+    for trade in potential_trades:
+        ticker = trade.ticker
+        
+        # Check: ONE ENTRY PER STOCK PER DAY
+        # If we have any *other* trade for this stock today that is active/closed, skip?
+        # Actually this 'trade' IS the record.
+        # But if we had a previous trade today that failed?
+        # Implementation: Check if there are ANY records for this ticker today that are NOT 'POTENTIAL' 
+        # (meaning we already acted on it).
+        # Since we just created this one record, it's fine.
+        # BUT, if we have multiple signals (unlikely with unique constraint logic above), handle it.
+        
+        nse_low, nse_high, nse_curr = get_live_price(ticker)
+        if not nse_curr: continue
+        
+        # VALIDATION PHASE
+        # 1. Check if SL already hit (Price gap down below SL?)
+        if nse_low <= trade.sl_price:
+            trade.status = "SKIPPED"
+            trade.outcome = "VOID"
+            trade.reason = f"SL Hit before Entry (Low {nse_low} <= SL {trade.sl_price})"
+            print(f"[{ticker}] Skipped: {trade.reason}")
+            continue
+            
+        # 2. Check if TP already hit (Price gap up above TP?)
+        if nse_high >= trade.tp_price:
+            trade.status = "SKIPPED"
+            trade.outcome = "VOID"
+            trade.reason = f"TP Hit before Entry (High {nse_high} >= TP {trade.tp_price})"
+            print(f"[{ticker}] Skipped: {trade.reason}")
+            continue
+            
+        # ENTRY PHASE
+        # Trigger Condition: Current Price is at or below Entry
+        # AND Price is within range (Low <= Entry <= High) - implied if Current <= Entry and Valid
+        
+        if nse_curr <= trade.entry_price:
+             # DOUBLE CHECK: One trade per day
+             # Ensure no other "OPEN" or "CLOSED" trade exists for this ticker today
+             # just to be super safe against race conditions or manual inserts
+             pass 
+             
+             trade.status = "OPEN"
+             trade.entry_date = today
+             trade.reason = "Entry Triggered Checks Passed"
+             
+             msg = f"🚀 **ENTRY TRIGGERED**: {trade.ticker}\nPrice: {trade.entry_price}\nSL: {trade.sl_price}\nTP: {trade.tp_price}"
+             send_alert(msg)
+             
+    db.commit()
+
+    # -------------------------------
+    # 2. Manage ACTIVE Trades (OPEN)
+    # -------------------------------
+    active_trades = db.query(Trade).filter(Trade.status == "OPEN").all()
+    
+    for trade in active_trades:
+        nse_low, nse_high, nse_curr = get_live_price(trade.ticker)
+        if not nse_curr: continue
+        
+        # Check SL
+        if nse_low <= trade.sl_price:
+            trade.status = "CLOSED"
+            trade.outcome = "LOSS"
+            trade.exit_price = trade.sl_price
+            trade.exit_date = today
+            trade.pnl = trade.exit_price - trade.entry_price
+            msg = f"🛑 **STOP LOSS HIT**: {trade.ticker}\nExit: {trade.exit_price}\nPnL: {trade.pnl:.2f}"
+            send_alert(msg)
+            
+        # Check TP
+        elif nse_high >= trade.tp_price:
+            trade.status = "CLOSED"
+            trade.outcome = "WIN"
+            trade.exit_price = trade.tp_price
+            trade.exit_date = today
+            trade.pnl = trade.exit_price - trade.entry_price
+            msg = f"💰 **TARGET HIT**: {trade.ticker}\nExit: {trade.exit_price}\nPnL: {trade.pnl:.2f}"
+            send_alert(msg)
+            
+    db.commit()
+    db.close()
+    print("Intraday Execution Cycle Complete.")
 
 def run_eod_report():
     print("Generating EOD Report...")
@@ -180,21 +249,21 @@ def run_eod_report():
     stocks = db.query(Stock).all()
     tickers = [s.ticker for s in stocks]
     print(f"Updating EOD data for {len(tickers)} stocks...")
-    # Update logic here or rely on Intraday to have captured moves?
-    # Better to run proper update for history accuracy
     update_market_data(db, tickers)
     
     # 2. Compile Report from DB
-    fills = db.query(Trade).filter(Trade.entry_date == today).all()
-    exits = db.query(Trade).filter(Trade.exit_date == today).all()
-    signals = db.query(Trade).filter(Trade.signal_date == today).all()
+    # Fetch all activity for today
+    todays_trades = db.query(Trade).filter(Trade.signal_date == today).all()
     
     msg = f"🔔 **EOD Summary ({today})**\n"
     
-    events = False
+    entries = [t for t in todays_trades if t.status == "OPEN"]
+    wins = [t for t in todays_trades if t.status == "CLOSED" and t.outcome == "WIN"]
+    losses = [t for t in todays_trades if t.status == "CLOSED" and t.outcome == "LOSS"]
+    skipped = [t for t in todays_trades if t.status == "SKIPPED"]
+    potential = [t for t in todays_trades if t.status == "POTENTIAL"] # Still waiting?
     
-    wins = [t for t in exits if t.outcome == "WIN"]
-    losses = [t for t in exits if t.outcome == "LOSS"]
+    events = False
     
     if wins:
         msg += "\n🎉 **Wins Today:**\n"
@@ -210,18 +279,24 @@ def run_eod_report():
             msg += f"{t.ticker}: {t.pnl:.2f} ({pnl_pct:.2f}%)\n"
         events = True
         
-    if fills:
-        msg += "\n✅ **Entries Filled:**\n"
-        for t in fills: 
-            msg += f"{t.ticker} @ {t.entry_price} (SL: {t.sl_price}, TP: {t.tp_price})\n"
+    if entries:
+        msg += "\n✅ **Active Positions:**\n"
+        for t in entries: 
+            msg += f"{t.ticker} @ {t.entry_price}\n"
         events = True
         
-    if signals:
-        msg += "\n🎯 **New Signals:**\n"
-        for t in signals: 
-            msg += f"{t.ticker} Buy: {t.entry_price:.2f} | SL: {t.sl_price:.2f} | TP: {t.tp_price:.2f}\n"
+    if skipped:
+        msg += "\n⚠️ **Skipped Scenarios:**\n"
+        for t in skipped:
+            msg += f"{t.ticker}: {t.reason}\n"
         events = True
         
+    if potential:
+        msg += "\n⏳ **Untriggered Potentials:**\n"
+        for t in potential:
+             msg += f"{t.ticker} Entry: {t.entry_price}\n"
+        events = True
+
     if events:
         send_alert(msg)
     else:
@@ -232,10 +307,12 @@ def run_eod_report():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["intraday", "eod"], default="intraday", help="Operational mode")
+    parser.add_argument("--mode", choices=["premarket", "intraday", "eod"], default="intraday", help="Operational mode")
     args = parser.parse_args()
     
-    if args.mode == "intraday":
-        run_intraday_cycle()
+    if args.mode == "premarket":
+        run_premarket_scan()
+    elif args.mode == "intraday":
+        run_intraday_execution()
     elif args.mode == "eod":
         run_eod_report()

@@ -2,8 +2,8 @@ name: Market Monitor (Intraday)
 
 on:
   schedule:
-    # Every 5 minutes from 3:45 UTC (9:15 IST) to 10:00 UTC (3:30 IST)
-    - cron: '*/5 3-10 * * 1-5'
+    # Every 3 minutes from 3:45 UTC (9:15 IST) to 10:00 UTC (3:30 IST)
+    - cron: '*/3 3-10 * * 1-5'
   workflow_dispatch:
 
 permissions:

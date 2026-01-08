@@ -120,7 +120,8 @@ def update_market_data(db: Session, tickers: list):
             start_date = None
             
             if last_entry:
-                start_date = last_entry[0] + timedelta(days=1)
+                # Always start from the last known date to ensure we update it if it was partial
+                start_date = last_entry[0]
             else:
                 # Default to 2 years ago if no data
                 start_date = today - timedelta(days=365*2)
@@ -180,41 +181,59 @@ def update_market_data(db: Session, tickers: list):
             # Process Indicators
             data = process_stock_data(ticker, data)
             
-            # Find existing dates to avoid duplicates
-            existing_dates = {row[0] for row in db.query(DailyPrice.date).filter(DailyPrice.ticker == ticker).all()}
+            # Fetch existing records to Update or Insert
+            existing_records = db.query(DailyPrice).filter(
+                DailyPrice.ticker == ticker, 
+                DailyPrice.date >= start_date
+            ).all()
+            existing_map = {r.date: r for r in existing_records}
             
             # Prepare objects
             new_records = []
+            updates_count = 0
+            
             for _, row in data.iterrows():
                 row_date = row['date']
                 
-                # Skip if already exists
-                if row_date in existing_dates:
-                    continue
-                
-                # Also skip if essential data is missing
+                # Skip if essential data is missing
                 if pd.isna(row['Close']):
                     continue
-                    
-                record = DailyPrice(
-                    ticker=ticker,
-                    date=row_date,
-                    open=row.get('Open', 0),
-                    high=row.get('High', 0),
-                    low=row.get('Low', 0),
-                    close=row.get('Close', 0),
-                    volume=int(row.get('Volume', 0)),
-                    rsi_14=row.get('RSI_14', None),
-                    ema_200=row.get('EMA_200', None),
-                    ema_50=row.get('EMA_50', None),
-                    ema_20=row.get('EMA_20', None)
-                )
-                new_records.append(record)
+
+                if row_date in existing_map:
+                    # UPDATE existing record
+                    rec = existing_map[row_date]
+                    rec.high = max(rec.high, row.get('High', 0))
+                    rec.low = min(rec.low, row.get('Low', 0))
+                    rec.close = row.get('Close', 0)
+                    rec.volume = int(row.get('Volume', 0))
+                    rec.rsi_14 = row.get('RSI_14', None)
+                    rec.ema_200 = row.get('EMA_200', None)
+                    rec.ema_50 = row.get('EMA_50', None)
+                    rec.ema_20 = row.get('EMA_20', None)
+                    updates_count += 1
+                else:
+                    # CREATE new record
+                    record = DailyPrice(
+                        ticker=ticker,
+                        date=row_date,
+                        open=row.get('Open', 0),
+                        high=row.get('High', 0),
+                        low=row.get('Low', 0),
+                        close=row.get('Close', 0),
+                        volume=int(row.get('Volume', 0)),
+                        rsi_14=row.get('RSI_14', None),
+                        ema_200=row.get('EMA_200', None),
+                        ema_50=row.get('EMA_50', None),
+                        ema_20=row.get('EMA_20', None)
+                    )
+                    new_records.append(record)
             
             if new_records:
-                db.bulk_save_objects(new_records)
+                db.add_all(new_records)
+                
+            if new_records or updates_count > 0:
                 db.commit()
-                print(f"Added {len(new_records)} records for {ticker}")
+                print(f"Processed {ticker}: Added {len(new_records)}, Updated {updates_count}")
                 
             time.sleep(1) # Rate limit
                 
