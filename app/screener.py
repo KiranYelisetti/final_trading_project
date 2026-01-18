@@ -60,6 +60,35 @@ def run_screener():
         # Sort by Growth
         watchlist = watchlist.sort_values(by='quarterly_earnings_growth', ascending=False)
         
+        # 3. Market & Relative Strength Filter
+        from app.market_utils import MarketAnalyzer
+        ma = MarketAnalyzer()
+        
+        print("\nChecking Market Regime...")
+        nifty_trend = ma.get_nifty_trend()
+        print(f"Nifty Trend: {nifty_trend}")
+        
+        if nifty_trend == "DOWNTREND":
+            print("⚠️ Market is in DOWNTREND. Be cautious. Applying strict RS filters.")
+            # Option: Return empty if strict mode? 
+            # For now, let's just proceed but filter strictly.
+            
+        print("Checking Relative Strength for candidates...")
+        # Apply RS Check
+        # We iterate and keep only those with RS > 0
+        strong_stocks = []
+        for index, row in watchlist.iterrows():
+            ticker = row['ticker']
+            if ma.get_relative_strength(ticker, db):
+                strong_stocks.append(row)
+            else:
+                pass # Discard weak stock
+        
+        if len(strong_stocks) < len(watchlist):
+            print(f"Filtered {len(watchlist) - len(strong_stocks)} stocks due to poor Relative Strength.")
+            
+        watchlist = pd.DataFrame(strong_stocks)
+        
         print(f"\nScanning {len(df)} stocks...")
         print(f"Found {len(watchlist)} matches.")
         

@@ -63,6 +63,22 @@ def run_premarket_scan():
     stocks = db.query(Stock).all()
     tickers = [s.ticker for s in stocks]
     
+    # --- MARKET REGIME FILTER ---
+    from app.market_utils import MarketAnalyzer
+    ma = MarketAnalyzer()
+    
+    print("Checking Market Regime (Nifty 50 Trend)...")
+    market_trend = ma.get_nifty_trend()
+    print(f"Market Trend: {market_trend}")
+    
+    if market_trend == "DOWNTREND":
+        print("🛑 MARKET DOWN TREND DETECTED. Aborting Long-Only Scans to prevent losses.")
+        msg = f"🛑 **TRADING HALTED**: Nifty 50 is in a DOWNTREND (Prices < EMA50). Premarket scan aborted to preserve capital."
+        send_alert(msg)
+        db.close()
+        return
+    # ----------------------------
+    
     potential_count = 0
     
     for ticker in tickers:
@@ -81,6 +97,13 @@ def run_premarket_scan():
             # 2. Analyze Strategy (Pure FVG)
             _, s_df = analyze_ticker(ticker, df)
             latest = s_df.iloc[-1]
+            
+            # --- RELATIVE STRENGTH CHECK ---
+            if not ma.get_relative_strength(ticker, db):
+                # Skip if stock is weaker than market
+                # print(f"[{ticker}] Skipped: Relative Weakness")
+                continue
+            # -------------------------------
             
             # 3. Check for Setup
             if latest['bullish_fvg']: # Bullish FVG Found
